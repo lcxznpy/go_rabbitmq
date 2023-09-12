@@ -88,6 +88,7 @@ func (r Rabbit) Publish(msg string) {
 
 func (r Rabbit) CosumeNormal() {
 	dlxExchangeName := "dlx_exchange" //死信交换机名称
+	//1.声明正常交换机
 	err := r.channel.ExchangeDeclare(
 		r.Exchange, // 交换机名字
 		"direct",   // 交换机类型，这里使用topic类型，即: Topics模式
@@ -98,25 +99,29 @@ func (r Rabbit) CosumeNormal() {
 		nil,        // 额外的属性
 	)
 	r.failOnErr(err, "Failed to declare an exchange")
+	//2.设置队列参数
 	argsQue := make(map[string]interface{})
 	//添加死信队列交换机属性
 	argsQue["x-dead-letter-exchange"] = dlxExchangeName
 	//指定死信队列的路由key，不指定使用队列路由键
 	//argsQue["x-dead-letter-routing-key"] = r.Key
 	//添加过期时间
-	argsQue["x-message-ttl"] = 6000 //单位毫秒
+	//argsQue["x-message-ttl"] = 6000 //单位毫秒
+	//队列最大长度
+	//argsQue["x-max-length"] = 6
 
-	//声明队列
+	//3.声明队列并添加参数
 	queue, err := r.channel.QueueDeclare(
-		"qqqq",  // 随机生产队列名称
-		true,    // 是否持久化
-		false,   // 是否自动删除
-		false,   // 是否具有排他性   ,排他性连接关闭自动删除队列
-		false,   // 是否阻塞处理
-		argsQue, // 额外的属性
+		"sixin_reject", // 随机生产队列名称
+		true,           // 是否持久化
+		false,          // 是否自动删除
+		false,          // 是否具有排他性   ,排他性连接关闭自动删除队列
+		false,          // 是否阻塞处理
+		argsQue,        // 额外的属性
 	)
 	r.failOnErr(err, "Failed to declare a queue")
 
+	//4.绑定队列和普通交换机
 	err = r.channel.QueueBind(
 		queue.Name, // 队列名
 		r.Key,      // 路由参数，如果匹配消息发送的时候指定的路由参数，消息就投递到当前队列（在Topics模式下，这里的key要指定）
@@ -126,7 +131,7 @@ func (r Rabbit) CosumeNormal() {
 	)
 	r.failOnErr(err, "QueueBind err:")
 
-	// 4.消费消息
+	// 5.消费消息
 	msgs, err := r.channel.Consume(
 		queue.Name, // 队列名称
 		"",         // 用来区分多个消费者
@@ -139,7 +144,7 @@ func (r Rabbit) CosumeNormal() {
 	r.failOnErr(err, "Failed to Consume")
 
 	fmt.Println(" [*] Waiting for messages.")
-	//消费接收到的消息
+	//6.消费接收到的消息
 	for {
 		select {
 		case message, ok := <-msgs:
@@ -150,6 +155,14 @@ func (r Rabbit) CosumeNormal() {
 				//处理消息
 				time.Sleep(time.Second * 2)
 				//确认接收到的消息
+				if string(message.Body) == "5r生产的消息" {
+					if err = message.Reject(false); err != nil {
+						fmt.Println("d.reject err: ", err)
+						return
+					}
+					fmt.Println("5r生产的消息 reject reject reject reject")
+					return
+				}
 				if err = message.Ack(true); err != nil {
 					//TODD: 获取到消息后，在过期时间内如果未进行确认，此消息就会流入到死信队列，此时进行消息确认就会报错
 					fmt.Println("d.Ack err: ", err)
@@ -165,7 +178,7 @@ func (r Rabbit) CosumeNormal() {
 }
 
 func (r Rabbit) CosumeDLX() {
-	//声明死信交换机
+	//1.声明死信交换机
 	err := r.channel.ExchangeDeclare(
 		"dlx_exchange",      // 交换机名字
 		amqp.ExchangeFanout, // 交换机类型，这里使用topic类型，即: Topics模式
@@ -177,7 +190,7 @@ func (r Rabbit) CosumeDLX() {
 	)
 	r.failOnErr(err, "Failed to declare an exchange")
 
-	//声明死信队列
+	//2.声明死信队列
 	queue, err := r.channel.QueueDeclare(
 		"dlx_queue", // 随机生产队列名称
 		true,        // 是否持久化
@@ -188,7 +201,7 @@ func (r Rabbit) CosumeDLX() {
 	)
 	r.failOnErr(err, "Failed to declare a queue")
 
-	//死信队列和死信交换机绑定
+	//3.死信队列和死信交换机绑定
 	err = r.channel.QueueBind(
 		queue.Name,     // 队列名
 		"",             // 路由参数，如果匹配消息发送的时候指定的路由参数，消息就投递到当前队列（在Topics模式下，这里的key要指定）
@@ -198,7 +211,7 @@ func (r Rabbit) CosumeDLX() {
 	)
 	r.failOnErr(err, "Failed to bind a DlxQueue")
 
-	//推送消息
+	//4.推送消息
 	msgs, err := r.channel.Consume(
 		queue.Name, // 队列名称
 		"",         // 用来区分多个消费者
@@ -211,7 +224,7 @@ func (r Rabbit) CosumeDLX() {
 	r.failOnErr(err, "Failed to Consume")
 
 	fmt.Println(" [*] Waiting for messages.")
-	//消费接收到的消息
+	//5.消费接收到的消息
 	for {
 		select {
 		case message, ok := <-msgs:
